@@ -17,7 +17,7 @@ app = Flask(__name__)
 CORS(app)
 api = Api(app)
 
-conn = sqlite3.connect('test.db', check_same_thread=False)
+conn = sqlite3.connect('exchange.db', check_same_thread=False)
 c = conn.cursor()
 
 def create_filled(bid, ask):
@@ -53,13 +53,14 @@ def create_filled(bid, ask):
 
     return temp
 
-c.execute('DROP TABLE bids')
-c.execute('DROP TABLE asks')
-c.execute('DROP TABLE fills')
-c.execute('DROP TABLE users')
-c.execute('DROP TABLE markets')
-c.execute('DROP TABLE positions')
-c.execute('DROP TABLE ref_prices')
+# c.execute('DROP TABLE bids')
+# c.execute('DROP TABLE asks')
+# c.execute('DROP TABLE fills')
+# c.execute('DROP TABLE users')
+# c.execute('DROP TABLE markets')
+# c.execute('DROP TABLE positions')
+# c.execute('DROP TABLE ref_prices')
+# c.execute('DROP TABLE settlement')
 
 c.execute('''CREATE TABLE bids
              (security_id, user_id, volume, price, time)''')
@@ -82,6 +83,8 @@ c.execute('''CREATE TABLE positions
 c.execute('''CREATE TABLE ref_prices
              (security_id, ref_price)''')
 
+c.execute('''CREATE TABLE settlement
+             (security_id, settle, in_settle)''')
 
 # # Create new users
 
@@ -99,8 +102,6 @@ def create_user(username):
 create_user('Michael')
 create_user('John')
 
-pd.read_sql_query('''SELECT * FROM users''', conn)
-
 class Users(Resource):
   def get(self):
     return jsonify(pd.read_sql_query('''SELECT * FROM users''', conn).to_dict("records"))
@@ -110,7 +111,6 @@ class Users(Resource):
     args = parser.parse_args()
     create_user(args["username"])
     return jsonify(pd.read_sql_query('''SELECT * FROM users''', conn).to_dict("records"))
-
 
 # # Creating new markets
 
@@ -125,11 +125,6 @@ def create_market(market_name,market_descriptor, end_time):
     create_time = datetime.datetime.now()
     c.execute(exec_string,
         (security_id, market_name, market_descriptor, create_time, end_time))
-
-end_time = datetime.datetime(2019, 12, 31, 23, 59) #Dec 31st, 11:59 pm
-create_market('Browns win the super bowl','Binary payout - contract size $1', end_time)
-
-pd.read_sql_query('''SELECT * FROM markets''', conn).sort_values('create_time')
 
 class Markets(Resource):
   def get(self):
@@ -168,9 +163,8 @@ def create_bid(security, user_id, volume, price):
     c.execute(exec_string,
         (security, user_id, volume, price, time))
 
-create_bid(0,0,10,0.5)
-
-pd.read_sql_query('''SELECT * FROM bids''', conn)
+    order_flow()
+    update_positions()
 
 class Bids(Resource):
   def get(self):
@@ -207,9 +201,8 @@ def create_ask(security,user_id, volume, price):
     c.execute(exec_string,
         (security, user_id, volume, price, time))
 
-create_ask(0,1,10,0.5)
-
-pd.read_sql_query('''SELECT * FROM asks''', conn)
+    order_flow()
+    update_positions()
 
 class Asks(Resource):
   def get(self):
@@ -224,19 +217,6 @@ class Asks(Resource):
     create_ask(args["security_id"], args["user_id"], args["volume"], args["price"])
     order_flow()
     return jsonify(pd.read_sql_query('''SELECT * FROM asks''', conn).to_dict("records"))
-
-
-# # Handling crossing own market
-
-create_ask(0,0,10,0.5)
-
-
-# # Other faulty orders
-
-create_bid(1,0,10,0.5)
-
-create_bid(0,2,10,0.5)
-
 
 # # Run orderflow
 
@@ -286,22 +266,9 @@ def order_flow():
         asks_df = pd.DataFrame(asks)
         asks_df.to_sql(name='asks', con=conn, if_exists='replace', index = False)        
 
-
-order_flow() #this should actually be put at the end of both the bid and ask functions, but is here to illustrate use
-# call every time a bid or ask is added
-
-pd.read_sql_query('''SELECT * FROM bids''', conn)
-
-pd.read_sql_query('''SELECT * FROM asks''', conn)
-
-pd.read_sql_query('''SELECT * FROM fills''', conn)
-
-pd.read_sql_query('''SELECT * FROM users''', conn)
-
 class Fills(Resource):
   def get(self):
     return jsonify(pd.read_sql_query('''SELECT * FROM fills''', conn).to_dict("records"))
-
 
 # # Get positions
 
@@ -339,9 +306,6 @@ def update_positions():
 
         pd.DataFrame(add_list).to_sql(name='positions', con=conn, if_exists='replace', index = False)   
 
-update_positions()
-
-pd.read_sql_query('''SELECT * FROM positions''', conn)
 
 class Positions(Resource):
   def get(self):
@@ -389,7 +353,6 @@ def list_of_markets():
 class MarketsList(Resource):
   def get(self):
     return list_of_markets()
-
 
 # # User summary
 
