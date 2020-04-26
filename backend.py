@@ -169,12 +169,15 @@ def update_bids_asks():
         
         bids = pd.read_sql_query('''SELECT * FROM bids''', conn)
         asks = pd.read_sql_query('''SELECT * FROM asks''', conn)
+        bids = bids[bids.security_id == row.security_id]
+        asks = asks[asks.security_id == row.security_id]
         
         if len(bids) > 0:
             
             bids = bids[bids.security_id == row.security_id]
-            highest_bid = float(bids.sort_values('price', ascending = False).iloc[0].price)
+            highest_bid = bids.sort_values('price', ascending = False).iloc[0].price
             highest_bid_volume = int(bids[bids.price == highest_bid].volume.sum())
+            highest_bid = float(highest_bid)
             
         else:
             
@@ -184,8 +187,9 @@ def update_bids_asks():
         if len(asks) > 0:
             
             asks = asks[asks.security_id == row.security_id]
-            lowest_ask = float(asks.sort_values('price', ascending = True).iloc[0].price)
+            lowest_ask = asks.sort_values('price', ascending = True).iloc[0].price
             lowest_ask_volume = int(asks[asks.price == lowest_ask].volume.sum())
+            lowest_ask = float(lowest_ask)
         
         else:
             
