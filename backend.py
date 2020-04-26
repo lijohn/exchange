@@ -78,7 +78,7 @@ c.execute('''CREATE TABLE users
              (user_id, username, pin, cash)''')
 
 c.execute('''CREATE TABLE markets
-             (security_id, market_name, market_descriptor, create_time, end_time)''')
+            (security_id, market_name, market_descriptor, create_time, end_time,best_bid_volume,best_bid,best_ask,best_ask_volume,last_traded)''')
 
 c.execute('''CREATE TABLE positions
              (security_id, user_id, position)''')
@@ -144,19 +144,64 @@ class User(Resource):
 # # Creating new markets
 
 def create_market(market_name,market_descriptor, end_time):
-    markets = users = pd.read_sql_query('''SELECT * FROM markets''', conn)
+    markets = pd.read_sql_query('''SELECT * FROM markets''', conn)
     if len(markets) > 0:
         security_id = int(markets.security_id.max()) + 1
     else:
         security_id = 0
-    exec_string = 'INSERT INTO markets (security_id, market_name, market_descriptor, create_time, end_time) values (?, ?, ?, ?, ?)'
-    create_time = datetime.datetime.now()
-    c.execute(exec_string,
-        (security_id, market_name, market_descriptor, create_time, end_time))
-    exec_string = 'INSERT INTO settlement (security_id,settle,in_settle) values ({},NULL,NULL)'.format(security_id)
-    c.execute(exec_string)
-    exec_string = 'INSERT INTO ref_prices (security_id,ref_price) values ({},NULL)'.format(security_id)
-    c.execute(exec_string)
+    
+    if len(markets.loc[markets.market_name == market_name]) > 0:
+        return 'Market already exists'
+    else: 
+        exec_string = 'INSERT INTO markets (security_id, market_name, market_descriptor, create_time, end_time, best_bid_volume, best_bid, best_ask, best_ask_volume,last_traded) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        create_time = datetime.datetime.now()
+        c.execute(exec_string,
+            (security_id, market_name, market_descriptor, create_time, end_time, None, None, None, None, None))
+
+        exec_string = 'INSERT INTO settlement (security_id,settle,in_settle) values ({},NULL,NULL)'.format(security_id)
+        c.execute(exec_string)
+        
+        exec_string = 'INSERT INTO ref_prices (security_id,ref_price) values ({},NULL)'.format(security_id)
+        c.execute(exec_string)
+
+def update_bids_asks():
+    for index, row in pd.read_sql_query('''SELECT * FROM markets''', conn).iterrows():
+        
+        bids = pd.read_sql_query('''SELECT * FROM bids''', conn)
+        asks = pd.read_sql_query('''SELECT * FROM asks''', conn)
+        
+        if len(bids) > 0:
+            
+            bids = bids[bids.security_id == row.security_id]
+            highest_bid = float(bids.sort_values('price', ascending = False).iloc[0].price)
+            highest_bid_volume = int(bids[bids.price == highest_bid].volume.sum())
+            
+        else:
+            
+            highest_bid = None
+            highest_bid_volume = None
+            
+        if len(asks) > 0:
+            
+            asks = asks[asks.security_id == row.security_id]
+            lowest_ask = float(asks.sort_values('price', ascending = True).iloc[0].price)
+            lowest_ask_volume = int(asks[asks.price == lowest_ask].volume.sum())
+        
+        else:
+            
+            lowest_ask = None
+            lowest_ask_volume = None
+            
+        ref_prices = pd.read_sql_query('''SELECT * FROM ref_prices''', conn)
+        ref_prices = ref_prices[ref_prices.security_id == row.security_id]
+        
+        if len(ref_prices) > 0 and ref_prices.iloc[0].ref_price is not None:
+            price = float(ref_prices.iloc[0].ref_price)
+        else:
+            price = None
+            
+        exec_string = 'UPDATE markets SET best_bid_volume = ?, best_bid = ?, best_ask = ?, best_ask_volume = ?, last_traded = ? WHERE security_id = ?'
+        c.execute(exec_string,(highest_bid_volume,highest_bid,lowest_ask,lowest_ask_volume,price,row.security_id))
 
 class Markets(Resource):
   def get(self):
@@ -202,6 +247,7 @@ def delete_exposure(security, user, pin):
     
         order_flow()
         update_positions()
+        update_bids_asks()
         return 'Deleted exposure'
     
     else:
@@ -249,6 +295,7 @@ def create_bid(security, user, pin, volume, price):
 
         order_flow()
         update_positions()
+        update_bids_asks()
         return jsonify(pd.read_sql_query('''SELECT * FROM bids WHERE security_id = {}'''
           .format(security), conn).to_dict("records"))
 
@@ -263,7 +310,7 @@ class Bids(Resource):
     parser.add_argument("security", type=int)
     parser.add_argument("user", type=str)
     parser.add_argument("volume", type=int)
-    parser.add_argument("price", type=float)
+    parser.add_argument("price")
     parser.add_argument("pin", type=str)
     args = parser.parse_args()
     return create_bid(args["security"], args["user"], args["pin"], args["volume"], args["price"])
@@ -300,6 +347,7 @@ def create_ask(security, user, pin, volume, price):
 
         order_flow()
         update_positions()
+        update_bids_asks()
         return jsonify(pd.read_sql_query('''SELECT * FROM asks WHERE security_id = {}'''
           .format(security), conn).to_dict("records"))
     
@@ -314,7 +362,7 @@ class Asks(Resource):
     parser.add_argument("security", type=int)
     parser.add_argument("user", type=str)
     parser.add_argument("volume", type=int)
-    parser.add_argument("price", type=float)
+    parser.add_argument("price")
     parser.add_argument("pin", type=str)
     args = parser.parse_args()
     return create_ask(args["security"], args["user"], args["pin"], args["volume"], args["price"])
