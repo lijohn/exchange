@@ -26,9 +26,9 @@ def create_filled(bid, ask):
     
     price = 0
     if bid['time'] < ask['time']:
-        price = min(bid['price'],ask['price'])
+        price = max(bid['price'],ask['price'])
     else:
-        price = max(ask['price'],bid['price'])
+        price = min(ask['price'],bid['price'])
 
     temp = {}
     temp['bid_id'] = bid['user_id']
@@ -50,20 +50,20 @@ def create_filled(bid, ask):
     
     users_df = pd.DataFrame(users)
     users_df.to_sql(name='users', con=conn, if_exists='replace', index = False)
-
+    
     execute = 'UPDATE ref_prices SET ref_price = {} WHERE security_id = {}'.format(price,temp['security_id'])
     c.execute(execute)
 
     return temp
 
-c.execute('DROP TABLE bids')
-c.execute('DROP TABLE asks')
-c.execute('DROP TABLE fills')
-c.execute('DROP TABLE users')
-c.execute('DROP TABLE markets')
-c.execute('DROP TABLE positions')
-c.execute('DROP TABLE ref_prices')
-c.execute('DROP TABLE settlement')
+# c.execute('DROP TABLE bids')
+# c.execute('DROP TABLE asks')
+# c.execute('DROP TABLE fills')
+# c.execute('DROP TABLE users')
+# c.execute('DROP TABLE markets')
+# c.execute('DROP TABLE positions')
+# c.execute('DROP TABLE ref_prices')
+# c.execute('DROP TABLE settlement')
 
 c.execute('''CREATE TABLE bids
              (security_id, user_id, volume, price, time)''')
@@ -209,7 +209,9 @@ def update_bids_asks():
 
 class Markets(Resource):
   def get(self):
-    return jsonify(pd.read_sql_query('''SELECT * FROM markets''', conn).to_dict("records"))
+    df = pd.read_sql_query('''SELECT * FROM markets''', conn)
+    df = df.where(pd.notnull(df), None)
+    return jsonify(df.to_dict("records"))
   def post(self):
     parser = reqparse.RequestParser()
     parser.add_argument("name")
@@ -217,7 +219,9 @@ class Markets(Resource):
     parser.add_argument("end")
     args = parser.parse_args()
     create_market(args["name"], args["description"], args["end"])
-    return jsonify(pd.read_sql_query('''SELECT * FROM markets''', conn).to_dict("records"))
+    df = pd.read_sql_query('''SELECT * FROM markets''', conn)
+    df = df.where(pd.notnull(df), None)
+    return jsonify(df.to_dict("records"))
 
 def close_markets():
     for index, row in pd.read_sql_query('''SELECT * FROM markets''', conn).iterrows():
@@ -277,14 +281,14 @@ def create_bid(security, user, pin, volume, price):
     if user not in list(users.username):
         return 'User does not exist'
     else:
-        user_id = int(users[users.username == user]['user_id'].iloc[0])
+        user_id = users[users.username == user]['user_id'].iloc[0]
     
     if security not in pd.read_sql_query('''SELECT * FROM markets''', conn).security_id:
         return 'Security does not exist'
     
     if user_id in list(pd.read_sql_query('''SELECT * FROM asks''', conn)['user_id']):
         asks = pd.read_sql_query('''SELECT * FROM asks''', conn)
-        if price >= asks.loc[asks.user_id == user_id].price.max():
+        if float(price) >= float(asks.loc[asks.user_id == user_id].price.min()):
             return 'Invalid Order - crossing own ask'
     
     if security in pd.read_sql_query('''SELECT * FROM settlement WHERE in_settle = 1''', conn).security_id:
@@ -295,7 +299,7 @@ def create_bid(security, user, pin, volume, price):
         exec_string = 'INSERT INTO bids (security_id, user_id, volume, price, time) values (?, ?, ?, ?, ?)'
         time = datetime.datetime.now()
         c.execute(exec_string,
-            (security, user_id, volume, price, time))
+            (security, int(user_id), volume, price, time))
 
         order_flow()
         update_positions()
@@ -314,7 +318,7 @@ class Bids(Resource):
     parser.add_argument("security", type=int)
     parser.add_argument("user", type=str)
     parser.add_argument("volume", type=int)
-    parser.add_argument("price")
+    parser.add_argument("price", type=float)
     parser.add_argument("pin", type=str)
     args = parser.parse_args()
     return create_bid(args["security"], args["user"], args["pin"], args["volume"], args["price"])
@@ -329,14 +333,14 @@ def create_ask(security, user, pin, volume, price):
     if user not in list(users.username):
         return 'User does not exist'
     else:
-        user_id = int(users[users.username == user]['user_id'].iloc[0])
+        user_id = users[users.username == user]['user_id'].iloc[0]
     
     if security not in pd.read_sql_query('''SELECT * FROM markets''', conn).security_id:
         return 'Security does not exist'
     
     if user_id in list(pd.read_sql_query('''SELECT * FROM bids''', conn)["user_id"]):
         bids = pd.read_sql_query('''SELECT * FROM bids''', conn)
-        if price <= bids.loc[bids.user_id == user_id].price.max():
+        if float(price) <= float(bids.loc[bids.user_id == user_id].price.max()):
             return 'Invalid Order - crossing own bid'
         
     if security in pd.read_sql_query('''SELECT * FROM settlement WHERE in_settle = 1''', conn).security_id:
@@ -347,7 +351,7 @@ def create_ask(security, user, pin, volume, price):
         exec_string = 'INSERT INTO asks (security_id, user_id, volume, price, time) values (?, ?, ?, ?, ?)'
         time = datetime.datetime.now()
         c.execute(exec_string,
-            (security, user_id, volume, price, time))
+            (security, int(user_id), volume, price, time))
 
         order_flow()
         update_positions()
@@ -366,7 +370,7 @@ class Asks(Resource):
     parser.add_argument("security", type=int)
     parser.add_argument("user", type=str)
     parser.add_argument("volume", type=int)
-    parser.add_argument("price")
+    parser.add_argument("price", type=float)
     parser.add_argument("pin", type=str)
     args = parser.parse_args()
     return create_ask(args["security"], args["user"], args["pin"], args["volume"], args["price"])
