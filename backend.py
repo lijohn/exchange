@@ -135,7 +135,7 @@ class Users(Resource):
     return validate_pin(args["user"], args["pin"])
 
 class User(Resource):
-  def get(self, user):
+  def put(self, user):
     parser = reqparse.RequestParser()
     parser.add_argument("pin")
     args = parser.parse_args()
@@ -486,7 +486,7 @@ def get_user_info(user, pin):
         return 'User does not exist'
     else:
         user_id = int(users[users.username == user]['user_id'].iloc[0])
-        
+
     if users[users.username == user].pin.iloc[0] == pin:
     
         user_df = pd.read_sql_query('''SELECT * FROM users WHERE user_id = {}'''.format(user_id), conn)
@@ -529,13 +529,13 @@ def get_user_info(user, pin):
             list_of_bids.append('No outstanding bids')
         else:
             for index, row in bids.iterrows():
-                list_of_bids.append(row.market_name + ' - ' + str(row.volume) + ' contracts for ' + str(row.price) + ' placed at: ' + str(row.time))
+                list_of_bids.append(row.market_name + ': ' + str(row.volume) + ' contracts for $' + str(row.price) + ' placed at: ' + str(row.time))
 
         if len(asks) == 0:
             list_of_asks.append('No outstanding asks')
         else:
             for index, row in asks.iterrows():
-                list_of_asks.append(row.market_name + ': ' + str(row.volume) + ' contracts for: ' + str(row.price))
+                list_of_asks.append(row.market_name + ': ' + str(row.volume) + ' contracts for $' + str(row.price) + ' placed at: ' + str(row.time))
 
         leaderboard = ret_leaderboard()
                 
@@ -546,7 +546,7 @@ def get_user_info(user, pin):
         return ret_dict
     
     else:
-        return False
+        return 'Incorrect Pin'
 
 # Flask routes
 api.add_resource(Users, '/users')
