@@ -615,4 +615,4 @@ api.add_resource(Asks, '/asks')
 api.add_resource(Positions, '/positions')
 api.add_resource(Fills, '/fills')
 
-app.run(port='3000')
+app.run(host='0.0.0.0', port=80)
